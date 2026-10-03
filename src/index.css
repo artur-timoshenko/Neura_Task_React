@@ -1,0 +1,151 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Tektur:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 5%;
+
+    --card: 0 0% 97%;
+    --card-foreground: 0 0% 5%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 5%;
+
+    --primary: 230 100% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 20% 92%;
+    --secondary-foreground: 0 0% 10%;
+
+    --muted: 220 15% 93%;
+    --muted-foreground: 220 10% 40%;
+
+    --accent: 45 100% 55%;
+    --accent-foreground: 0 0% 5%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 20% 82%;
+    --input: 220 15% 85%;
+    --ring: 230 100% 40%;
+
+    --radius: 0px;
+
+    --sidebar-background: 230 60% 30%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 210 100% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 230 50% 38%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 210 60% 45%;
+    --sidebar-ring: 210 100% 60%;
+
+    --status-todo: 220 15% 55%;
+    --status-in-progress: 45 100% 45%;
+    --status-review: 280 60% 55%;
+    --status-done: 120 60% 40%;
+
+    --surface-elevated: 0 0% 100%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Tektur', 'Press Start 2P', sans-serif;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+
+  /* Retro inset/outset borders */
+  .retro-outset {
+    border: 2px solid;
+    border-color: hsl(210, 80%, 70%) hsl(230, 80%, 15%) hsl(230, 80%, 15%) hsl(210, 80%, 70%);
+  }
+
+  .retro-inset {
+    border: 2px solid;
+    border-color: hsl(230, 80%, 15%) hsl(210, 80%, 70%) hsl(210, 80%, 70%) hsl(230, 80%, 15%);
+  }
+
+  /* Title bar gradient */
+  .retro-titlebar {
+    background: linear-gradient(90deg, hsl(230, 100%, 25%) 0%, hsl(210, 100%, 50%) 100%);
+    color: white;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: bold;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 16px;
+    height: 16px;
+  }
+  ::-webkit-scrollbar-track {
+    background: hsl(230, 50%, 30%);
+    border: 1px solid hsl(210, 80%, 50%);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(230, 60%, 40%);
+    border: 2px solid;
+    border-color: hsl(210, 80%, 70%) hsl(230, 80%, 15%) hsl(230, 80%, 15%) hsl(210, 80%, 70%);
+  }
+}
+
+@layer utilities {
+  .font-mono {
+    font-family: 'Tektur', sans-serif;
+  }
+  .font-pixel {
+    font-family: 'Press Start 2P', monospace;
+  }
+}
+
+/* Kanban card animations */
+.kanban-card {
+  animation: kanban-fade-in 0.3s ease-out both;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+}
+
+.kanban-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px -4px hsl(var(--primary) / 0.15);
+}
+
+.kanban-card:active {
+  transform: scale(0.97);
+  transition-duration: 0.1s;
+}
+
+.kanban-card[draggable="true"]:active {
+  opacity: 0.7;
+  cursor: grabbing;
+}
+
+@keyframes kanban-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.kanban-card:nth-child(1) { animation-delay: 0ms; }
+.kanban-card:nth-child(2) { animation-delay: 40ms; }
+.kanban-card:nth-child(3) { animation-delay: 80ms; }
+.kanban-card:nth-child(4) { animation-delay: 120ms; }
+.kanban-card:nth-child(5) { animation-delay: 160ms; }
+.kanban-card:nth-child(n+6) { animation-delay: 200ms; }
