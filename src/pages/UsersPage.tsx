@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserPlus, Ban, Mail, Lock, Trash2, Pencil, ShieldCheck, Users as UsersIcon, Tag, UserCog } from "lucide-react";
+import { UserPlus, Ban, Mail, MailCheck, Lock, Trash2, Pencil, ShieldCheck, Users as UsersIcon, Tag, UserCog } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { toast as sonnerToast } from "sonner";
 import type { Database } from "@/integrations/supabase/types";
@@ -46,6 +46,8 @@ export default function UsersPage() {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [verifyingEmailId, setVerifyingEmailId] = useState<string | null>(null);
+  const [verifiedEmailIds, setVerifiedEmailIds] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
   const [editUser, setEditUser] = useState<Profile | null>(null);
@@ -190,6 +192,20 @@ export default function UsersPage() {
       sonnerToast.success(newBanned ? t("users.userBlocked") : t("users.userUnblocked"));
       fetchUsers();
     } catch (e: any) { sonnerToast.error(e.message); }
+  };
+
+  const handleVerifyEmail = async (u: Profile) => {
+    setVerifyingEmailId(u.id);
+    try {
+      await invokeAdminAction("verify_email", { targetUserId: u.id });
+      setVerifiedEmailIds((previous) => new Set(previous).add(u.id));
+      await logAction({ action: "email_verified", entityType: "user", entityId: u.id, targetUserId: u.id });
+      sonnerToast.success(`Почта ${u.email || "пользователя"} подтверждена`);
+    } catch (error: any) {
+      sonnerToast.error(error.message);
+    } finally {
+      setVerifyingEmailId(null);
+    }
   };
 
   const handleSaveRole = async () => {
@@ -448,6 +464,16 @@ export default function UsersPage() {
                   </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" title={t("users.changeEmail")} onClick={() => { setEditUser(u); setEditAction("email"); }}>
                     <Mail className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 sm:h-8 sm:w-8"
+                    title="Подтвердить почту"
+                    disabled={verifyingEmailId === u.id || verifiedEmailIds.has(u.id)}
+                    onClick={() => handleVerifyEmail(u)}
+                  >
+                    <MailCheck className={`h-3 w-3 sm:h-3.5 sm:w-3.5 ${verifiedEmailIds.has(u.id) ? "text-emerald-500" : ""}`} />
                   </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" title={t("users.changeRole")} onClick={() => { setRoleUser(u); setRoleValue(r); }}>
                     <ShieldCheck className={`h-3 w-3 sm:h-3.5 sm:w-3.5 ${r === "admin" ? "text-primary" : r === "teamlead" ? "text-accent-foreground" : ""}`} />

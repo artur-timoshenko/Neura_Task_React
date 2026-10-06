@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { supabase, API_URL, PUBLIC_CLIENT_ID } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client";
 import { useDirections } from "@/hooks/useDirections";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -233,51 +233,68 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
     filesToUpload.forEach(f => { progress[f.name] = 0; });
     setUploadProgress({ ...progress });
 
-    for (const file of filesToUpload) {
-      const filePath = `${task.id}/submissions/${Date.now()}_${sanitizeFileName(file.name)}`;
-      
-      // Upload with XHR for progress tracking
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      const uploaded = token ? await new Promise<boolean>((resolve) => {
-        const url = `${API_URL}/storage/v1/object/task-files/${filePath}`;
-        
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", url);
-        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-        xhr.setRequestHeader("apikey", PUBLIC_CLIENT_ID);
-        xhr.setRequestHeader("x-upsert", "false");
-        
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            setUploadProgress(prev => ({ ...prev, [file.name]: pct }));
+    let completed = 0;
+    try {
+      for (const file of filesToUpload) {
+        try {
+          const { data: uploadGrant, error: grantError } = await supabase.functions.invoke("create-task-upload", {
+            body: { taskId: task.id, fileName: file.name, fileSize: file.size },
+          });
+          if (grantError || !uploadGrant?.signedUrl || !uploadGrant?.path) {
+            throw new Error(uploadGrant?.error || grantError?.message || "Не удалось подготовить загрузку");
           }
-        };
-        
-        xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
-        xhr.onerror = () => resolve(false);
-        xhr.send(file);
-      }) : false;
 
-      if (!uploaded) {
-        toast.error(t("detail.uploadError") + ": " + file.name);
-        continue;
+          const uploaded = await new Promise<{ ok: boolean; message?: string }>((resolve) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", uploadGrant.signedUrl);
+            xhr.setRequestHeader("x-upsert", "false");
+            xhr.upload.onprogress = (event) => {
+              if (event.lengthComputable) {
+                setUploadProgress((previous) => ({
+                  ...previous,
+                  [file.name]: Math.round((event.loaded / event.total) * 100),
+                }));
+              }
+            };
+            xhr.onload = () => resolve({
+              ok: xhr.status >= 200 && xhr.status < 300,
+              message: xhr.responseText,
+            });
+            xhr.onerror = () => resolve({ ok: false, message: "Сетевая ошибка" });
+            const form = new FormData();
+            form.append("cacheControl", "3600");
+            form.append("", file);
+            xhr.send(form);
+          });
+          if (!uploaded.ok) throw new Error(uploaded.message || "Загрузка отклонена хранилищем");
+
+          const { error: insertError } = await supabase.from("task_attachments").insert({
+            task_id: task.id,
+            user_id: user.id,
+            file_name: file.name,
+            file_path: uploadGrant.path,
+            file_size: file.size,
+            category: "submission",
+          } as any);
+          if (insertError) {
+            await supabase.storage.from("task-files").remove([uploadGrant.path]);
+            throw insertError;
+          }
+
+          completed += 1;
+          await logAction({ action: "uploaded", entityType: "attachment", taskId: task.id, targetUserId: task.user_id, details: { fileName: file.name, fileSize: file.size, category: "submission" } });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Неизвестная ошибка";
+          toast.error(`${t("detail.uploadError")}: ${file.name}. ${message}`);
+        }
       }
-      
-      const { error: insertError } = await supabase.from("task_attachments").insert({
-        task_id: task.id, user_id: user.id, file_name: file.name,
-        file_path: filePath, file_size: file.size, category: 'submission'
-      } as any);
-      if (!insertError) {
-        await logAction({ action: "uploaded", entityType: "attachment", taskId: task.id, targetUserId: task.user_id, details: { fileName: file.name, fileSize: file.size, category: "submission" } });
-      }
+
+      if (completed > 0) toast.success(`${t("detail.videosUploaded")}: ${completed}/${filesToUpload.length}`);
+      await fetchAttachments();
+    } finally {
+      setUploadProgress({});
+      setUploadingSubmission(false);
     }
-    
-    toast.success(t("detail.videosUploaded"));
-    setUploadProgress({});
-    fetchAttachments();
-    setUploadingSubmission(false);
   };
 
   const triggerBrowserDownload = (href: string, fileName: string) => {
