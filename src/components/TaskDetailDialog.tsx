@@ -88,15 +88,24 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
   const [buyers, setBuyers] = useState<{ id: string; name: string | null; email: string | null }[]>([]);
   const [buyerRealNames, setBuyerRealNames] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const editDescriptionRef = useRef(task.description || "");
+  const [descriptionDirty, setDescriptionDirty] = useState(false);
   const editDescRef = useRef<HTMLTextAreaElement>(null);
   const editEditorRef = useRef<RichTextEditorHandle>(null);
   useEffect(() => { editDescRef.current = editEditorRef.current?.textarea ?? null; });
-  const getEditDesc = useCallback(() => editDescription, [editDescription]);
-  const handleEditDescPaste = useImagePaste(getEditDesc, setEditDescription, editDescRef);
+  const updateEditDescription = useCallback((value: string) => {
+    editDescriptionRef.current = value;
+    setEditDescription(value);
+    setDescriptionDirty(true);
+  }, []);
+  const getEditDesc = useCallback(() => editDescriptionRef.current, []);
+  const handleEditDescPaste = useImagePaste(getEditDesc, updateEditDescription, editDescRef);
 
   useEffect(() => {
     setEditTitle(task.title);
     setEditDescription(task.description || "");
+    editDescriptionRef.current = task.description || "";
+    setDescriptionDirty(false);
     setEditPriority(task.priority);
     setEditStatus(task.status);
     setEditDirection(task.direction || "");
@@ -247,6 +256,9 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
           const uploaded = await new Promise<{ ok: boolean; message?: string }>((resolve) => {
             const xhr = new XMLHttpRequest();
             xhr.open("PUT", uploadGrant.signedUrl);
+            const uploadHeaders = uploadGrant.uploadHeaders as Record<string, string> | undefined;
+            if (uploadHeaders?.apikey) xhr.setRequestHeader("apikey", uploadHeaders.apikey);
+            if (uploadHeaders?.authorization) xhr.setRequestHeader("Authorization", uploadHeaders.authorization);
             xhr.setRequestHeader("x-upsert", "false");
             xhr.upload.onprogress = (event) => {
               if (event.lengthComputable) {
@@ -438,15 +450,16 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
   const handleSaveEdit = async () => {
     if (!editTitle.trim()) return;
     setSaving(true);
+    const latestDescription = editDescriptionRef.current.trim();
     const updates: Database["public"]["Tables"]["tasks"]["Update"] = {
       title: editTitle.trim(),
-      description: editDescription.trim() || null,
       priority: editPriority,
       status: editStatus,
       direction: editDirection || null,
       complexity: editComplexity ? parseFloat(editComplexity) : null,
       user_id: editUserId,
       ...(isAdmin ? { buyer_id: editBuyerId || null } : {}),
+      ...(descriptionDirty ? { description: latestDescription || null } : {}),
     };
     if (editStatus === "in_progress" && !task.in_progress_at) {
       updates.in_progress_at = new Date().toISOString();
@@ -476,7 +489,7 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
         targetUserId: editUserId,
         details: {
           title: editTitle.trim(),
-          description: editDescription.trim() || null,
+          description: descriptionDirty ? latestDescription || null : task.description,
           priority: editPriority,
           status: editStatus,
           direction: editDirection || null,
@@ -498,6 +511,7 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
         });
       }
       toast.success(t("detail.taskUpdated"));
+      setDescriptionDirty(false);
       setEditing(false);
       onUpdated?.();
     }
@@ -889,7 +903,7 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
           {editing ? (
             <div>
               <Label className="text-[10px] sm:text-xs text-muted-foreground">{t("task.description")}</Label>
-              <RichTextEditor ref={editEditorRef} value={editDescription} onChange={setEditDescription} onPaste={handleEditDescPaste} rows={6} className="mt-1" placeholder="Ctrl+V для вставки изображений" />
+              <RichTextEditor ref={editEditorRef} value={editDescription} onChange={updateEditDescription} onPaste={handleEditDescPaste} rows={6} className="mt-1" placeholder="Ctrl+V для вставки изображений" />
             </div>
           ) : (
             task.description && (
@@ -944,6 +958,8 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
                     setEditing(false);
                     setEditTitle(task.title);
                     setEditDescription(task.description || "");
+                    editDescriptionRef.current = task.description || "";
+                    setDescriptionDirty(false);
                     setEditPriority(task.priority);
                     setEditStatus(task.status);
                     setEditDirection(task.direction || "");
