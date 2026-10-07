@@ -51,7 +51,12 @@ export function KanbanBoard({ tasks, onStatusChange, userMap = {}, showAssignee,
   const liveSelectedTask = useMemo(() => {
     if (!selectedTask) return selectedTask;
     const base = tasks.find((t) => t.id === selectedTask.id) ?? selectedTask;
-    const desc = base.description ?? descriptions[selectedTask.id] ?? null;
+    const descriptionLoaded = Object.prototype.hasOwnProperty.call(descriptions, selectedTask.id);
+    const desc = base.description !== undefined
+      ? base.description
+      : descriptionLoaded
+        ? descriptions[selectedTask.id]
+        : undefined;
     return { ...base, description: desc };
   }, [tasks, selectedTask, descriptions]) as Task;
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
@@ -278,7 +283,10 @@ export function KanbanBoard({ tasks, onStatusChange, userMap = {}, showAssignee,
           onOpenChange={(o) => { if (!o) { setSelectedTask(null); closeUrl(); } }}
           assigneeName={userMap[liveSelectedTask.user_id]}
           onDeleted={() => { setSelectedTask(null); closeUrl(); onTaskDeleted?.(); }}
-          onUpdated={() => { onTaskDeleted?.(); }}
+          onUpdated={() => {
+            loadDescription(liveSelectedTask.id);
+            onTaskDeleted?.();
+          }}
           users={users}
         />
       )}
