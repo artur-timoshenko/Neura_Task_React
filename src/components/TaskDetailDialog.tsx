@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { Paperclip, Send, Download, ArrowUpCircle, ArrowDownCircle, AlertCircle, Flame, Folder, Calendar, Clock, Trash2, Pencil, Save, X, Timer, Upload, Video, Pause, Play, ChevronDown, RotateCcw, Copy, Check } from "lucide-react";
 import { notifyTelegramReview, notifyTelegramCorrections, notifyTelegramNewTask } from "@/lib/notifyTelegram";
 import { Progress } from "@/components/ui/progress";
-import { sanitizeFileName } from "@/lib/sanitizeFileName";
+import { deleteTaskFile, uploadTaskFile } from "@/lib/taskFileStorage";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Linkify } from "@/components/Linkify";
 import { RichDescription } from "@/components/RichDescription";
@@ -221,11 +221,18 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
     if (!files || files.length === 0 || !user) return;
     setUploading(true);
     for (const file of Array.from(files)) {
-      const filePath = `${task.id}/${Date.now()}_${sanitizeFileName(file.name)}`;
-      const { error: uploadError } = await supabase.storage.from("task-files").upload(filePath, file);
-      if (uploadError) { toast.error(t("detail.uploadError") + ": " + uploadError.message); continue; }
+      let filePath = "";
+      try {
+        filePath = await uploadTaskFile({ taskId: task.id, file, category: "attachment" });
+      } catch (error) {
+        toast.error(t("detail.uploadError") + ": " + (error instanceof Error ? error.message : "Неизвестная ошибка"));
+        continue;
+      }
       const { error: dbError } = await supabase.from("task_attachments").insert({ task_id: task.id, user_id: user.id, file_name: file.name, file_path: filePath, file_size: file.size } as any);
-      if (dbError) { toast.error(t("detail.saveError") + ": " + dbError.message); }
+      if (dbError) {
+        await deleteTaskFile(filePath, task.id).catch(() => undefined);
+        toast.error(t("detail.saveError") + ": " + dbError.message);
+      }
       else {
         await logAction({ action: "uploaded", entityType: "attachment", taskId: task.id, targetUserId: task.user_id, details: { fileName: file.name, fileSize: file.size, category: "attachment" } });
       }
@@ -257,65 +264,23 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
     try {
       for (const file of filesToUpload) {
         try {
-          const { data: uploadGrant, error: grantError } = await supabase.functions.invoke("create-task-upload", {
-            body: { taskId: task.id, fileName: file.name, fileSize: file.size },
-          });
-          if (grantError || !uploadGrant?.signedUrl || !uploadGrant?.path) {
-            let grantMessage = uploadGrant?.error || grantError?.message || "Не удалось подготовить загрузку";
-            const errorContext = (grantError as any)?.context;
-            if (errorContext instanceof Response) {
-              try {
-                const payload = await errorContext.clone().json();
-                if (typeof payload?.error === "string") grantMessage = payload.error;
-              } catch {
-                // Keep the SDK message when the response body is not JSON.
-              }
-            }
-            throw new Error(grantMessage);
-          }
-
-          await new Promise<void>((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("PUT", uploadGrant.signedUrl);
-            xhr.setRequestHeader("x-upsert", "false");
-            xhr.upload.onprogress = (event) => {
-              if (!event.lengthComputable) return;
-              setUploadProgress((previous) => ({
-                ...previous,
-                [file.name]: Math.round((event.loaded / event.total) * 100),
-              }));
-            };
-            xhr.onload = () => {
-              if (xhr.status >= 200 && xhr.status < 300) {
-                resolve();
-                return;
-              }
-              let message = xhr.responseText || `Storage HTTP ${xhr.status}`;
-              try {
-                const payload = JSON.parse(xhr.responseText);
-                message = payload.message || payload.error || message;
-              } catch {
-                // Keep the raw Storage response when it is not JSON.
-              }
-              reject(new Error(message));
-            };
-            xhr.onerror = () => reject(new Error("Сетевая ошибка при отправке файла в Storage"));
-            const form = new FormData();
-            form.append("cacheControl", "3600");
-            form.append("", file);
-            xhr.send(form);
+          const filePath = await uploadTaskFile({
+            taskId: task.id,
+            file,
+            category: "submission",
+            onProgress: (percent) => setUploadProgress((previous) => ({ ...previous, [file.name]: percent })),
           });
 
           const { error: insertError } = await supabase.from("task_attachments").insert({
             task_id: task.id,
             user_id: user.id,
             file_name: file.name,
-            file_path: uploadGrant.path,
+            file_path: filePath,
             file_size: file.size,
             category: "submission",
           } as any);
           if (insertError) {
-            await supabase.storage.from("task-files").remove([uploadGrant.path]);
+            await deleteTaskFile(filePath, task.id).catch(() => undefined);
             throw insertError;
           }
 
@@ -734,10 +699,11 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
   const handleDeleteAttachment = async () => {
     if (!attachmentToDelete) return;
     setDeletingAttachment(true);
-    const { error: storageError } = await supabase.storage.from("task-files").remove([attachmentToDelete.file_path]);
-    if (storageError) {
+    try {
+      await deleteTaskFile(attachmentToDelete.file_path, task.id);
+    } catch (error) {
       setDeletingAttachment(false);
-      toast.error(t("detail.deleteError") + ": " + storageError.message);
+      toast.error(t("detail.deleteError") + ": " + (error instanceof Error ? error.message : "Неизвестная ошибка"));
       return;
     }
     const { error: dbError } = await supabase.from("task_attachments").delete().eq("id", attachmentToDelete.id);
