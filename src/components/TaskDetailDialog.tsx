@@ -29,6 +29,7 @@ import { logAction } from "@/lib/actionLog";
 import { workingElapsedMs } from "@/lib/workingTime";
 import { TaskChatPanel } from "@/components/TaskChatPanel";
 import { User as UserIcon } from "lucide-react";
+import * as tus from "tus-js-client";
 
 type Task = Database["public"]["Tables"]["tasks"]["Row"];
 type TaskStatus = Database["public"]["Enums"]["task_status"];
@@ -100,6 +101,17 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
   }, []);
   const getEditDesc = useCallback(() => editDescriptionRef.current, []);
   const handleEditDescPaste = useImagePaste(getEditDesc, updateEditDescription, editDescRef);
+
+  // Kanban rows load the description separately after opening the dialog.
+  // Accept that late value only while the editor is idle so a background
+  // refresh can never erase text currently being typed.
+  useEffect(() => {
+    if (editing || task.description === undefined) return;
+    const description = task.description || "";
+    setEditDescription(description);
+    editDescriptionRef.current = description;
+    setDescriptionDirty(false);
+  }, [task.description, editing]);
 
   useEffect(() => {
     setEditTitle(task.title);
@@ -249,36 +261,38 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
           const { data: uploadGrant, error: grantError } = await supabase.functions.invoke("create-task-upload", {
             body: { taskId: task.id, fileName: file.name, fileSize: file.size },
           });
-          if (grantError || !uploadGrant?.signedUrl || !uploadGrant?.path) {
+          if (grantError || !uploadGrant?.resumableUrl || !uploadGrant?.path || !uploadGrant?.uploadToken) {
             throw new Error(uploadGrant?.error || grantError?.message || "Не удалось подготовить загрузку");
           }
 
-          const uploaded = await new Promise<{ ok: boolean; message?: string }>((resolve) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("PUT", uploadGrant.signedUrl);
-            const uploadHeaders = uploadGrant.uploadHeaders as Record<string, string> | undefined;
-            if (uploadHeaders?.apikey) xhr.setRequestHeader("apikey", uploadHeaders.apikey);
-            if (uploadHeaders?.authorization) xhr.setRequestHeader("Authorization", uploadHeaders.authorization);
-            xhr.setRequestHeader("x-upsert", "false");
-            xhr.upload.onprogress = (event) => {
-              if (event.lengthComputable) {
+          await new Promise<void>((resolve, reject) => {
+            const upload = new tus.Upload(file, {
+              endpoint: uploadGrant.resumableUrl,
+              chunkSize: 6 * 1024 * 1024,
+              retryDelays: [0, 1_000, 3_000, 5_000, 10_000],
+              uploadDataDuringCreation: true,
+              removeFingerprintOnSuccess: true,
+              headers: {
+                "x-signature": uploadGrant.uploadToken,
+                "x-upsert": "false",
+              },
+              metadata: {
+                bucketName: "task-files",
+                objectName: uploadGrant.path,
+                contentType: file.type || "application/octet-stream",
+                cacheControl: "3600",
+              },
+              onError: reject,
+              onProgress: (bytesUploaded, bytesTotal) => {
                 setUploadProgress((previous) => ({
                   ...previous,
-                  [file.name]: Math.round((event.loaded / event.total) * 100),
+                  [file.name]: Math.round((bytesUploaded / bytesTotal) * 100),
                 }));
-              }
-            };
-            xhr.onload = () => resolve({
-              ok: xhr.status >= 200 && xhr.status < 300,
-              message: xhr.responseText,
+              },
+              onSuccess: () => resolve(),
             });
-            xhr.onerror = () => resolve({ ok: false, message: "Сетевая ошибка" });
-            const form = new FormData();
-            form.append("cacheControl", "3600");
-            form.append("", file);
-            xhr.send(form);
+            upload.start();
           });
-          if (!uploaded.ok) throw new Error(uploaded.message || "Загрузка отклонена хранилищем");
 
           const { error: insertError } = await supabase.from("task_attachments").insert({
             task_id: task.id,
@@ -303,6 +317,9 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
 
       if (completed > 0) toast.success(`${t("detail.videosUploaded")}: ${completed}/${filesToUpload.length}`);
       await fetchAttachments();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Неизвестная ошибка";
+      toast.error(`${t("detail.uploadError")}: ${message}`);
     } finally {
       setUploadProgress({});
       setUploadingSubmission(false);
@@ -515,6 +532,25 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
       setEditing(false);
       onUpdated?.();
     }
+  };
+
+  const beginEditing = () => {
+    if (task.description === undefined) {
+      toast.error("Описание задачи ещё загружается. Попробуйте через секунду.");
+      return;
+    }
+    const description = task.description || "";
+    setEditTitle(task.title);
+    setEditDescription(description);
+    editDescriptionRef.current = description;
+    setDescriptionDirty(false);
+    setEditPriority(task.priority);
+    setEditStatus(task.status);
+    setEditDirection(task.direction || "");
+    setEditComplexity(String((task as any).complexity || ""));
+    setEditUserId(task.user_id);
+    setEditBuyerId((task as any).buyer_id || "");
+    setEditing(true);
   };
 
   const formatDuration = (ms: number) => {
@@ -971,7 +1007,7 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
                 </>
               ) : (
                 <>
-                  <Button size="sm" variant="outline" onClick={() => setEditing(true)} className="gap-1.5">
+                  <Button size="sm" variant="outline" onClick={beginEditing} className="gap-1.5">
                     <Pencil className="h-3.5 w-3.5" />{t("detail.edit")}
                   </Button>
                   <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)} className="gap-1.5">
