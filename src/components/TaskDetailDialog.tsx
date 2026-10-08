@@ -29,7 +29,6 @@ import { logAction } from "@/lib/actionLog";
 import { workingElapsedMs } from "@/lib/workingTime";
 import { TaskChatPanel } from "@/components/TaskChatPanel";
 import { User as UserIcon } from "lucide-react";
-import * as tus from "tus-js-client";
 
 type Task = Database["public"]["Tables"]["tasks"]["Row"];
 type TaskStatus = Database["public"]["Enums"]["task_status"];
@@ -261,7 +260,7 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
           const { data: uploadGrant, error: grantError } = await supabase.functions.invoke("create-task-upload", {
             body: { taskId: task.id, fileName: file.name, fileSize: file.size },
           });
-          if (grantError || !uploadGrant?.resumableUrl || !uploadGrant?.path || !uploadGrant?.uploadToken) {
+          if (grantError || !uploadGrant?.signedUrl || !uploadGrant?.path) {
             let grantMessage = uploadGrant?.error || grantError?.message || "Не удалось подготовить загрузку";
             const errorContext = (grantError as any)?.context;
             if (errorContext instanceof Response) {
@@ -276,32 +275,35 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
           }
 
           await new Promise<void>((resolve, reject) => {
-            const upload = new tus.Upload(file, {
-              endpoint: uploadGrant.resumableUrl,
-              chunkSize: 6 * 1024 * 1024,
-              retryDelays: [0, 1_000, 3_000, 5_000, 10_000],
-              uploadDataDuringCreation: true,
-              removeFingerprintOnSuccess: true,
-              headers: {
-                "x-signature": uploadGrant.uploadToken,
-                "x-upsert": "false",
-              },
-              metadata: {
-                bucketName: "task-files",
-                objectName: uploadGrant.path,
-                contentType: file.type || "application/octet-stream",
-                cacheControl: "3600",
-              },
-              onError: reject,
-              onProgress: (bytesUploaded, bytesTotal) => {
-                setUploadProgress((previous) => ({
-                  ...previous,
-                  [file.name]: Math.round((bytesUploaded / bytesTotal) * 100),
-                }));
-              },
-              onSuccess: () => resolve(),
-            });
-            upload.start();
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", uploadGrant.signedUrl);
+            xhr.setRequestHeader("x-upsert", "false");
+            xhr.upload.onprogress = (event) => {
+              if (!event.lengthComputable) return;
+              setUploadProgress((previous) => ({
+                ...previous,
+                [file.name]: Math.round((event.loaded / event.total) * 100),
+              }));
+            };
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                resolve();
+                return;
+              }
+              let message = xhr.responseText || `Storage HTTP ${xhr.status}`;
+              try {
+                const payload = JSON.parse(xhr.responseText);
+                message = payload.message || payload.error || message;
+              } catch {
+                // Keep the raw Storage response when it is not JSON.
+              }
+              reject(new Error(message));
+            };
+            xhr.onerror = () => reject(new Error("Сетевая ошибка при отправке файла в Storage"));
+            const form = new FormData();
+            form.append("cacheControl", "3600");
+            form.append("", file);
+            xhr.send(form);
           });
 
           const { error: insertError } = await supabase.from("task_attachments").insert({
