@@ -24,9 +24,13 @@ export async function getSignedTaskFileUrl(
   const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.url;
 
-  const { data, error } = await supabase.storage
-    .from("task-files")
-    .createSignedUrl(path, TTL_SECONDS, opts?.download ? { download: opts.download } : undefined);
+  const { data, error } = path.startsWith("railway/")
+    ? await supabase.functions.invoke("sign-task-file", {
+        body: { filePath: path, download: opts?.download },
+      })
+    : await supabase.storage
+        .from("task-files")
+        .createSignedUrl(path, TTL_SECONDS, opts?.download ? { download: opts.download } : undefined);
   if (error || !data?.signedUrl) return "";
   cache.set(key, { url: data.signedUrl, expiresAt: Date.now() + (TTL_SECONDS - 300) * 1000 });
   return data.signedUrl;
