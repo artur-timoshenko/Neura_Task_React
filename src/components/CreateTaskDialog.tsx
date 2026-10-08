@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Paperclip, Clock } from "lucide-react";
-import { sanitizeFileName } from "@/lib/sanitizeFileName";
+import { deleteTaskFile, uploadTaskFile } from "@/lib/taskFileStorage";
 import { supabase } from "@/integrations/supabase/client";
 import { useBoards } from "@/hooks/useBoards";
 import { useAuth } from "@/contexts/AuthContext";
@@ -145,12 +145,15 @@ export function CreateTaskDialog({ users, onCreated, externalOpen, onExternalOpe
 
     if (files.length > 0 && taskData) {
       for (const file of files) {
-        const filePath = `${taskData.id}/${Date.now()}_${sanitizeFileName(file.name)}`;
-        const { error: uploadError } = await supabase.storage.from("task-files").upload(filePath, file);
-        if (!uploadError) {
-          await supabase.from("task_attachments").insert({
+        try {
+          const filePath = await uploadTaskFile({ taskId: taskData.id, file, category: "attachment" });
+          const { error: insertError } = await supabase.from("task_attachments").insert({
             task_id: taskData.id, user_id: user?.id, file_name: file.name, file_path: filePath, file_size: file.size,
           } as any);
+          if (insertError) {
+            await deleteTaskFile(filePath, taskData.id).catch(() => undefined);
+            throw insertError;
+          }
           await logAction({
             action: "uploaded",
             entityType: "attachment",
@@ -162,8 +165,8 @@ export function CreateTaskDialog({ users, onCreated, externalOpen, onExternalOpe
               category: "attachment",
             },
           });
-        } else {
-          sonnerToast.error(t("detail.uploadError") + ": " + uploadError.message);
+        } catch (error) {
+          sonnerToast.error(t("detail.uploadError") + ": " + (error instanceof Error ? error.message : "Неизвестная ошибка"));
         }
       }
     }
