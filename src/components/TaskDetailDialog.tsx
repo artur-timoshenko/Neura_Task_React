@@ -262,7 +262,17 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
             body: { taskId: task.id, fileName: file.name, fileSize: file.size },
           });
           if (grantError || !uploadGrant?.resumableUrl || !uploadGrant?.path || !uploadGrant?.uploadToken) {
-            throw new Error(uploadGrant?.error || grantError?.message || "Не удалось подготовить загрузку");
+            let grantMessage = uploadGrant?.error || grantError?.message || "Не удалось подготовить загрузку";
+            const errorContext = (grantError as any)?.context;
+            if (errorContext instanceof Response) {
+              try {
+                const payload = await errorContext.clone().json();
+                if (typeof payload?.error === "string") grantMessage = payload.error;
+              } catch {
+                // Keep the SDK message when the response body is not JSON.
+              }
+            }
+            throw new Error(grantMessage);
           }
 
           await new Promise<void>((resolve, reject) => {
