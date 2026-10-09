@@ -2,13 +2,14 @@ import { ReactNode, useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
-import { LogOut, Users, Settings, Menu, X, Globe, BarChart3, Clapperboard, Globe2, FolderTree, MessageCircle, Bot, BookOpen } from "lucide-react";
+import { LogOut, Users, Settings, Menu, X, Globe, BarChart3, FolderTree, MessageCircle, BookOpen, Moon, Sun } from "lucide-react";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useBoards } from "@/hooks/useBoards";
 import { boardIcon } from "@/lib/boards";
+import { useTheme } from "next-themes";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { role, profile, signOut, user } = useAuth();
@@ -20,6 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { boards } = useBoards();
   const [userBoards, setUserBoards] = useState<Set<string>>(new Set());
+  const { resolvedTheme, setTheme } = useTheme();
 
   useEffect(() => {
     if (!user || isAdmin || isTeamlead) {
@@ -89,6 +91,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       <button onClick={toggleLang}
         className="w-full flex items-center gap-3 px-3 py-3 md:py-2 text-[13px] md:text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
         <Globe className="h-5 w-5 md:h-4 md:w-4" /> {lang === "ru" ? "RU" : "EN"}
+      </button>
+      <button
+        onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+        className="w-full flex items-center gap-3 px-3 py-3 md:py-2 text-[13px] md:text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+        aria-label={resolvedTheme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
+      >
+        {resolvedTheme === "dark"
+          ? <Sun className="h-5 w-5 md:h-4 md:w-4" />
+          : <Moon className="h-5 w-5 md:h-4 md:w-4" />}
+        {lang === "ru"
+          ? resolvedTheme === "dark" ? "Светлая тема" : "Тёмная тема"
+          : resolvedTheme === "dark" ? "Light theme" : "Dark theme"}
       </button>
 
     </>
