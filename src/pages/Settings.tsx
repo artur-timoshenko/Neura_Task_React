@@ -137,6 +137,7 @@ export default function Settings() {
   // ---- Buyer creation (admin) ----
   const [buyerNick, setBuyerNick] = useState("");
   const [buyerRealName, setBuyerRealName] = useState("");
+  const [buyerTeam, setBuyerTeam] = useState("");
   const [buyerTags, setBuyerTags] = useState("");
   const [buyerLoading, setBuyerLoading] = useState(false);
   const [buyerCreds, setBuyerCreds] = useState<{ email: string; password: string } | null>(null);
@@ -170,12 +171,17 @@ export default function Settings() {
       const d = res.data as { email: string; password: string; userId: string };
       setBuyerCreds({ email: d.email, password: d.password });
       const realName = buyerRealName.trim();
-      if (realName) {
-        await (supabase as any).from("buyer_real_names").upsert({ buyer_id: d.userId, real_name: realName });
+      const team = buyerTeam.trim();
+      if (realName || team) {
+        await (supabase as any).from("buyer_real_names").upsert({
+          buyer_id: d.userId,
+          real_name: realName || nick,
+          team: team || null,
+        });
       }
-      await logAction({ action: "created", entityType: "user", entityId: d.userId, targetUserId: d.userId, details: { role: "buyer", nickname: nick, tags: tagsList } });
+      await logAction({ action: "created", entityType: "user", entityId: d.userId, targetUserId: d.userId, details: { role: "buyer", nickname: nick, team: team || null, tags: tagsList } });
       toast.success("Баер создан. Скопируйте логин и пароль — они больше не показываются.");
-      setBuyerNick(""); setBuyerTags(""); setBuyerRealName("");
+      setBuyerNick(""); setBuyerTags(""); setBuyerRealName(""); setBuyerTeam("");
     } catch (e: any) {
       toast.error(e.message || "Ошибка создания");
     }
@@ -334,6 +340,10 @@ export default function Settings() {
                 <div className="space-y-2">
                   <Label>Настоящее имя (видят только админы и тимлиды)</Label>
                   <Input value={buyerRealName} onChange={(e) => setBuyerRealName(e.target.value)} placeholder="ВЛ" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Teams (видят только админы и тимлиды)</Label>
+                  <Input value={buyerTeam} onChange={(e) => setBuyerTeam(e.target.value)} maxLength={100} placeholder="Например: Team Alpha" />
                 </div>
                 <div className="space-y-2">
                   <Label>Теги через запятую (опционально)</Label>
