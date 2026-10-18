@@ -87,6 +87,8 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
   const [editBuyerId, setEditBuyerId] = useState<string>((task as any).buyer_id || "");
   const [buyers, setBuyers] = useState<{ id: string; name: string | null; email: string | null }[]>([]);
   const [buyerRealNames, setBuyerRealNames] = useState<Record<string, string>>({});
+  const [buyerTeams, setBuyerTeams] = useState<Record<string, string>>({});
+  const [buyerTeam, setBuyerTeam] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const editDescriptionRef = useRef(task.description || "");
   const [descriptionDirty, setDescriptionDirty] = useState(false);
@@ -132,13 +134,23 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
     (async () => {
       const { data: roles } = await supabase.from("user_roles").select("user_id").eq("role", "buyer" as any);
       const ids = (roles || []).map((r: any) => r.user_id);
-      if (!ids.length) { setBuyers([]); return; }
+      if (!ids.length) {
+        setBuyers([]);
+        setBuyerRealNames({});
+        setBuyerTeams({});
+        return;
+      }
       const { data: profs } = await supabase.from("profiles").select("id, name, email").in("id", ids);
       setBuyers(profs || []);
-      const { data: names } = await (supabase as any).from("buyer_real_names").select("buyer_id, real_name").in("buyer_id", ids);
+      const { data: names } = await (supabase as any).from("buyer_real_names").select("buyer_id, real_name, team").in("buyer_id", ids);
       const map: Record<string, string> = {};
-      (names || []).forEach((n: any) => { map[n.buyer_id] = n.real_name; });
+      const teamMap: Record<string, string> = {};
+      (names || []).forEach((n: any) => {
+        map[n.buyer_id] = n.real_name;
+        if (n.team) teamMap[n.buyer_id] = n.team;
+      });
       setBuyerRealNames(map);
+      setBuyerTeams(teamMap);
     })();
   }, [open, isAdmin]);
 
@@ -188,15 +200,18 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
           setBuyerProfile(data ?? null);
         });
         if (isAdmin) {
-          (supabase as any).from("buyer_real_names").select("real_name").eq("buyer_id", bid).maybeSingle().then(({ data }: any) => {
+          (supabase as any).from("buyer_real_names").select("real_name, team").eq("buyer_id", bid).maybeSingle().then(({ data }: any) => {
             setBuyerRealName(data?.real_name || null);
+            setBuyerTeam(data?.team || null);
           });
         } else {
           setBuyerRealName(null);
+          setBuyerTeam(null);
         }
       } else {
         setBuyerProfile(null);
         setBuyerRealName(null);
+        setBuyerTeam(null);
       }
       const channel = supabase.channel(`comments-${task.id}`)
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "task_comments", filter: `task_id=eq.${task.id}` }, () => fetchComments())
@@ -807,7 +822,7 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
                       <SelectItem value="none" className="text-xs">—</SelectItem>
                       {buyers.map((b) => (
                         <SelectItem key={b.id} value={b.id} className="text-xs">
-                          {b.name || b.email || b.id.slice(0, 8)}{buyerRealNames[b.id] ? ` (${buyerRealNames[b.id]})` : ""}
+                          {b.name || b.email || b.id.slice(0, 8)}{buyerRealNames[b.id] ? ` (${buyerRealNames[b.id]})` : ""}{buyerTeams[b.id] ? ` · ${buyerTeams[b.id]}` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -854,7 +869,7 @@ export function TaskDetailDialog({ task, open, onOpenChange, assigneeName, onDel
               {assigneeName && (<span className="text-[10px] sm:text-xs text-muted-foreground">{t("detail.assigned")}: <span className="font-medium text-foreground">{assigneeName}</span></span>)}
               {buyerProfile && (
                 <Badge variant="outline" className="gap-1 text-[10px] sm:text-xs border-status-review/40 text-status-review">
-                  <UserIcon className="h-3 w-3" />Баер: {buyerProfile.name || buyerProfile.email}{isAdmin && buyerRealName ? ` (${buyerRealName})` : ""}
+                  <UserIcon className="h-3 w-3" />Баер: {buyerProfile.name || buyerProfile.email}{isAdmin && buyerRealName ? ` (${buyerRealName})` : ""}{isAdmin && buyerTeam ? ` · Teams: ${buyerTeam}` : ""}
                 </Badge>
               )}
             </div>
