@@ -60,16 +60,18 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         );
       })}
-      {isAdmin && (
+      {(isAdmin || isTeamlead) && (
         <>
           <button onClick={() => navTo("/users")}
             className={`w-full flex items-center gap-3 px-3 py-3 md:py-2 text-[13px] md:text-[11px] transition-colors ${location.pathname === "/users" ? "retro-inset bg-primary/20 text-primary-foreground font-bold" : "text-muted-foreground hover:text-foreground hover:bg-secondary"}`}>
             <Users className="h-5 w-5 md:h-4 md:w-4" /> {t("nav.users")}
           </button>
-          <button onClick={() => navTo("/stats")}
-            className={`w-full flex items-center gap-3 px-3 py-3 md:py-2 text-[13px] md:text-[11px] transition-colors ${location.pathname === "/stats" ? "retro-inset bg-primary/20 text-primary-foreground font-bold" : "text-muted-foreground hover:text-foreground hover:bg-secondary"}`}>
-            <BarChart3 className="h-5 w-5 md:h-4 md:w-4" /> {t("nav.stats")}
-          </button>
+          {isAdmin && (
+            <button onClick={() => navTo("/stats")}
+              className={`w-full flex items-center gap-3 px-3 py-3 md:py-2 text-[13px] md:text-[11px] transition-colors ${location.pathname === "/stats" ? "retro-inset bg-primary/20 text-primary-foreground font-bold" : "text-muted-foreground hover:text-foreground hover:bg-secondary"}`}>
+              <BarChart3 className="h-5 w-5 md:h-4 md:w-4" /> {t("nav.stats")}
+            </button>
+          )}
         </>
       )}
       <button onClick={() => navTo("/projects")}
