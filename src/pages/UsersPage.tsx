@@ -51,7 +51,7 @@ export default function UsersPage() {
   const { toast } = useToast();
 
   const [editUser, setEditUser] = useState<Profile | null>(null);
-  const [editAction, setEditAction] = useState<"password" | "email" | "name" | "realname" | null>(null);
+  const [editAction, setEditAction] = useState<"password" | "email" | "name" | "realname" | "buyerteam" | null>(null);
   const [editValue, setEditValue] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [deleteUser, setDeleteUser] = useState<Profile | null>(null);
@@ -72,6 +72,7 @@ export default function UsersPage() {
   const [showDesigners, setShowDesigners] = useState(true);
 
   const [realNames, setRealNames] = useState<Record<string, string>>({});
+  const [buyerTeams, setBuyerTeams] = useState<Record<string, string>>({});
 
   const saveTags = async () => {
     if (!tagsUser) return;
@@ -92,12 +93,17 @@ export default function UsersPage() {
       supabase.from("tasks").select("user_id"),
       supabase.from("user_roles").select("user_id, role"),
       supabase.from("team_memberships").select("teamlead_id, member_id"),
-      (supabase as any).from("buyer_real_names").select("buyer_id, real_name"),
+      (supabase as any).from("buyer_real_names").select("buyer_id, real_name, team"),
     ]);
     if (realRes?.data) {
       const rn: Record<string, string> = {};
-      realRes.data.forEach((r: any) => { rn[r.buyer_id] = r.real_name; });
+      const bt: Record<string, string> = {};
+      realRes.data.forEach((r: any) => {
+        rn[r.buyer_id] = r.real_name;
+        if (r.team) bt[r.buyer_id] = r.team;
+      });
       setRealNames(rn);
+      setBuyerTeams(bt);
     }
     if (tasksRes.data) {
       const counts: Record<string, number> = {};
@@ -119,7 +125,9 @@ export default function UsersPage() {
     }
   };
 
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => {
+    if (role === "admin" || role === "teamlead") void fetchUsers();
+  }, [role]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,7 +161,7 @@ export default function UsersPage() {
   };
 
   const handleEditSubmit = async () => {
-    if (!editUser || !editAction || !editValue.trim()) return;
+    if (!editUser || !editAction || (editAction !== "buyerteam" && !editValue.trim())) return;
     setEditLoading(true);
     try {
       if (editAction === "password") {
@@ -177,6 +185,19 @@ export default function UsersPage() {
           .upsert({ buyer_id: editUser.id, real_name: editValue.trim(), updated_at: new Date().toISOString() });
         if (error) throw error;
         sonnerToast.success("Настоящее имя сохранено");
+        fetchUsers();
+      } else if (editAction === "buyerteam") {
+        if (editValue.trim().length > 100) throw new Error("Название команды: максимум 100 символов");
+        const { error } = await (supabase as any)
+          .from("buyer_real_names")
+          .upsert({
+            buyer_id: editUser.id,
+            real_name: realNames[editUser.id] || editUser.name || "",
+            team: editValue.trim() || null,
+            updated_at: new Date().toISOString(),
+          });
+        if (error) throw error;
+        sonnerToast.success("Команда баера сохранена");
         fetchUsers();
       }
       setEditUser(null); setEditAction(null); setEditValue("");
@@ -268,6 +289,14 @@ export default function UsersPage() {
     ? "bg-status-review/20 text-status-review border-status-review/30"
     : "bg-muted text-muted-foreground border-border";
 
+  if (role !== "admin" && role !== "teamlead") {
+    return (
+      <AppShell>
+        <div className="p-6 text-sm text-muted-foreground">Нет доступа</div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="p-4 sm:p-6 max-w-4xl mx-auto">
@@ -276,7 +305,7 @@ export default function UsersPage() {
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">{t("users.title")}</h1>
             <p className="text-xs sm:text-sm text-muted-foreground mt-1">{users.length} {t("users.members")}</p>
           </div>
-          <Dialog open={open} onOpenChange={setOpen}>
+          {role === "admin" && <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button size="sm" className="gap-1.5 text-xs sm:text-sm"><UserPlus className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">{t("users.add")}</span><span className="sm:hidden">+</span></Button>
             </DialogTrigger>
@@ -289,20 +318,20 @@ export default function UsersPage() {
                 <Button type="submit" className="w-full" disabled={loading}>{loading ? t("task.creating") : t("users.create")}</Button>
               </form>
             </DialogContent>
-          </Dialog>
+          </Dialog>}
         </div>
 
         <Dialog open={!!editAction} onOpenChange={(v) => { if (!v) { setEditAction(null); setEditUser(null); setEditValue(""); } }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
-                {editAction === "password" ? t("users.changePassword") : editAction === "email" ? t("users.changeEmail") : editAction === "realname" ? "Настоящее имя баера" : t("users.changeName")} — {editUser?.name || editUser?.email}
+                {editAction === "password" ? t("users.changePassword") : editAction === "email" ? t("users.changeEmail") : editAction === "realname" ? "Настоящее имя баера" : editAction === "buyerteam" ? "Команда баера" : t("users.changeName")} — {editUser?.name || editUser?.email}
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>{editAction === "password" ? t("users.newPassword") : editAction === "email" ? t("users.newEmail") : editAction === "realname" ? "Настоящее имя (видят только админы и тимлиды)" : t("users.newName")}</Label>
-                <Input type={editAction === "password" ? "password" : "text"} value={editValue} onChange={(e) => setEditValue(e.target.value)} placeholder={editAction === "password" ? t("reset.minChars") : editAction === "email" ? "new@email.com" : editAction === "realname" ? "ВЛ" : t("auth.yourName")} />
+                <Label>{editAction === "password" ? t("users.newPassword") : editAction === "email" ? t("users.newEmail") : editAction === "realname" ? "Настоящее имя (видят только админы и тимлиды)" : editAction === "buyerteam" ? "Teams (видят только админы и тимлиды)" : t("users.newName")}</Label>
+                <Input type={editAction === "password" ? "password" : "text"} value={editValue} onChange={(e) => setEditValue(e.target.value)} maxLength={editAction === "buyerteam" ? 100 : undefined} placeholder={editAction === "password" ? t("reset.minChars") : editAction === "email" ? "new@email.com" : editAction === "realname" ? "ВЛ" : editAction === "buyerteam" ? "Например: Team Alpha" : t("auth.yourName")} />
               </div>
               <Button onClick={handleEditSubmit} className="w-full" disabled={editLoading}>
                 {editLoading ? t("users.saving") : t("users.save")}
@@ -437,6 +466,9 @@ export default function UsersPage() {
                       {r === "buyer" && realNames[u.id] && (
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">Настоящее: {realNames[u.id]}</Badge>
                       )}
+                      {r === "buyer" && buyerTeams[u.id] && (
+                        <Badge className="text-[10px] px-1.5 py-0 shrink-0 border bg-secondary text-secondary-foreground border-border">Teams: {buyerTeams[u.id]}</Badge>
+                      )}
                     </div>
                     <p className="text-[10px] sm:text-xs text-muted-foreground font-mono truncate">{u.email}</p>
                     {role === "admin" && (
@@ -456,6 +488,7 @@ export default function UsersPage() {
                 </div>
                 <div className="flex items-center gap-1 sm:gap-2 ml-11 sm:ml-0 flex-wrap">
                   <span className="text-[10px] sm:text-sm text-muted-foreground font-mono mr-1 sm:mr-2 whitespace-nowrap">{taskCounts[u.id] || 0} {t("users.tasks")}</span>
+                  {role === "admin" && <>
                   <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" title={t("users.changeName")} onClick={() => { setEditUser(u); setEditAction("name"); setEditValue(u.name || ""); }}>
                     <Pencil className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                   </Button>
@@ -482,9 +515,14 @@ export default function UsersPage() {
                     <Tag className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                   </Button>
                   {r === "buyer" && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" title="Настоящее имя баера" onClick={() => { setEditUser(u); setEditAction("realname"); setEditValue(realNames[u.id] || ""); }}>
-                      <UserCog className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary" />
-                    </Button>
+                    <>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" title="Настоящее имя баера" onClick={() => { setEditUser(u); setEditAction("realname"); setEditValue(realNames[u.id] || ""); }}>
+                        <UserCog className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" title="Teams баера" onClick={() => { setEditUser(u); setEditAction("buyerteam"); setEditValue(buyerTeams[u.id] || ""); }}>
+                        <UsersIcon className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-status-review" />
+                      </Button>
+                    </>
                   )}
                   {r === "teamlead" && (
                     <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" title={t("users.manageTeam")} onClick={() => openTeamDialog(u)}>
@@ -497,6 +535,7 @@ export default function UsersPage() {
                   <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8 text-destructive hover:text-destructive" title={t("users.delete")} onClick={() => setDeleteUser(u)}>
                     <Trash2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                   </Button>
+                  </>}
                 </div>
               </div>
             );
