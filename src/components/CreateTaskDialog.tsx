@@ -49,6 +49,7 @@ export function CreateTaskDialog({ users, onCreated, externalOpen, onExternalOpe
   const [buyerId, setBuyerId] = useState<string>("");
   const [buyers, setBuyers] = useState<Profile[]>([]);
   const [buyerRealNames, setBuyerRealNames] = useState<Record<string, string>>({});
+  const [buyerTeams, setBuyerTeams] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const { user } = useAuth();
@@ -69,13 +70,18 @@ export function CreateTaskDialog({ users, onCreated, externalOpen, onExternalOpe
     (async () => {
       const { data: roles } = await supabase.from("user_roles").select("user_id").eq("role", "buyer" as any);
       const ids = (roles || []).map((r: any) => r.user_id);
-      if (ids.length === 0) { setBuyers([]); setBuyerRealNames({}); return; }
+      if (ids.length === 0) { setBuyers([]); setBuyerRealNames({}); setBuyerTeams({}); return; }
       const { data: profs } = await supabase.from("profiles").select("*").in("id", ids);
       setBuyers((profs as Profile[]) || []);
-      const { data: rn } = await (supabase as any).from("buyer_real_names").select("buyer_id, real_name").in("buyer_id", ids);
+      const { data: rn } = await (supabase as any).from("buyer_real_names").select("buyer_id, real_name, team").in("buyer_id", ids);
       const rmap: Record<string, string> = {};
-      (rn || []).forEach((r: any) => { rmap[r.buyer_id] = r.real_name; });
+      const tmap: Record<string, string> = {};
+      (rn || []).forEach((r: any) => {
+        rmap[r.buyer_id] = r.real_name;
+        if (r.team) tmap[r.buyer_id] = r.team;
+      });
       setBuyerRealNames(rmap);
+      setBuyerTeams(tmap);
     })();
   }, [open]);
 
@@ -279,7 +285,7 @@ export function CreateTaskDialog({ users, onCreated, externalOpen, onExternalOpe
               <SelectContent>
                 <SelectItem value="none">— без баера —</SelectItem>
                 {buyers.map((b) => (
-                  <SelectItem key={b.id} value={b.id}>{b.name || b.email || b.id.slice(0, 8)}{buyerRealNames[b.id] ? ` (${buyerRealNames[b.id]})` : ""}</SelectItem>
+                  <SelectItem key={b.id} value={b.id}>{b.name || b.email || b.id.slice(0, 8)}{buyerRealNames[b.id] ? ` (${buyerRealNames[b.id]})` : ""}{buyerTeams[b.id] ? ` · ${buyerTeams[b.id]}` : ""}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
