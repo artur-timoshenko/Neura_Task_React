@@ -28,6 +28,7 @@ export default function ChatsPage() {
   const [selectedBuyer, setSelectedBuyer] = useState<string>("");
   const [selectedDesigner, setSelectedDesigner] = useState<string>("");
   const [realNames, setRealNames] = useState<Record<string, string>>({});
+  const [buyerTeams, setBuyerTeams] = useState<Record<string, string>>({});
 
   useEffect(() => {
     (async () => {
@@ -47,10 +48,15 @@ export default function ChatsPage() {
 
       // For buyers: only show designers with existing threads (buyer cannot initiate)
       if (isAdmin) {
-        const { data: rn } = await (supabase as any).from("buyer_real_names").select("buyer_id, real_name");
+        const { data: rn } = await (supabase as any).from("buyer_real_names").select("buyer_id, real_name, team");
         const rmap: Record<string, string> = {};
-        (rn || []).forEach((r: any) => { rmap[r.buyer_id] = r.real_name; });
+        const tmap: Record<string, string> = {};
+        (rn || []).forEach((r: any) => {
+          rmap[r.buyer_id] = r.real_name;
+          if (r.team) tmap[r.buyer_id] = r.team;
+        });
         setRealNames(rmap);
+        setBuyerTeams(tmap);
       }
 
       // For buyers: only show designers with existing threads (buyer cannot initiate)
@@ -83,11 +89,11 @@ export default function ChatsPage() {
   const filterMatch = (p: Profile) => {
     const q = query.trim().toLowerCase();
     if (!q) return true;
-    const hay = [p.name, p.email, isAdmin ? realNames[p.id] : null, ...(((p as any).tags as string[] | undefined) || [])].filter(Boolean).join(" ").toLowerCase();
+    const hay = [p.name, p.email, isAdmin ? realNames[p.id] : null, isAdmin ? buyerTeams[p.id] : null, ...(((p as any).tags as string[] | undefined) || [])].filter(Boolean).join(" ").toLowerCase();
     return hay.includes(q);
   };
 
-  const filteredBuyers = useMemo(() => visibleBuyers.filter(filterMatch), [visibleBuyers, query, realNames]);
+  const filteredBuyers = useMemo(() => visibleBuyers.filter(filterMatch), [visibleBuyers, query, realNames, buyerTeams]);
   const filteredDesigners = useMemo(() => visibleDesigners.filter(filterMatch), [visibleDesigners, query]);
 
   // Compute effective pair for chat
@@ -125,6 +131,7 @@ export default function ChatsPage() {
                       <Avatar className="h-8 w-8 shrink-0"><AvatarImage src={b.avatar_url || undefined} /><AvatarFallback className="text-[10px]">{b.name?.charAt(0)?.toUpperCase() || "?"}</AvatarFallback></Avatar>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-medium truncate">{b.name || b.email}{isAdmin && realNames[b.id] ? ` (${realNames[b.id]})` : ""}</p>
+                        {isAdmin && buyerTeams[b.id] && <p className="text-[10px] text-muted-foreground truncate">Teams: {buyerTeams[b.id]}</p>}
                         {tags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1">
                             {tags.map((t) => <Badge key={t} variant="secondary" className="text-[9px] px-1 py-0">{t}</Badge>)}
@@ -159,7 +166,7 @@ export default function ChatsPage() {
             <>
               <div className="border-b border-border p-3 bg-card">
                 <p className="text-xs font-semibold">
-                  {profiles[pair.designerId]?.name || t("chats.designer")} ↔ {profiles[pair.buyerId]?.name || t("chats.buyer")}{isAdmin && realNames[pair.buyerId] ? ` (${realNames[pair.buyerId]})` : ""}
+                  {profiles[pair.designerId]?.name || t("chats.designer")} ↔ {profiles[pair.buyerId]?.name || t("chats.buyer")}{isAdmin && realNames[pair.buyerId] ? ` (${realNames[pair.buyerId]})` : ""}{isAdmin && buyerTeams[pair.buyerId] ? ` · Teams: ${buyerTeams[pair.buyerId]}` : ""}
                 </p>
               </div>
               <BuyerChatPanel
