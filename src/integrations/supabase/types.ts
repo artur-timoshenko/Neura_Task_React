@@ -121,18 +121,21 @@ export type Database = {
           buyer_id: string
           created_at: string
           real_name: string
+          team: string | null
           updated_at: string
         }
         Insert: {
           buyer_id: string
           created_at?: string
           real_name?: string
+          team?: string | null
           updated_at?: string
         }
         Update: {
           buyer_id?: string
           created_at?: string
           real_name?: string
+          team?: string | null
           updated_at?: string
         }
         Relationships: [
